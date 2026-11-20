@@ -13,7 +13,7 @@ const firebaseConfig = {
 };
 const configured = Boolean(firebaseConfig.apiKey && firebaseConfig.projectId && firebaseConfig.appId);
 const $ = id => document.getElementById(id);
-let auth, db, currentUser, purchases = [], settings = {limit:0, billMonth:"2026-12"};
+let auth, db, currentUser, purchases = [], settings = {limit:0, billMonth:"2026-12", monthlyLimits:{}};
 const brl = v => Number(v||0).toLocaleString("pt-BR",{style:"currency",currency:"BRL"});
 const dateOnly = d => {const x=new Date(d);return new Date(x.getTime()-x.getTimezoneOffset()*60000).toISOString().slice(0,10)};
 const currentMonth = () => {const d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`};
@@ -29,11 +29,12 @@ async function loadData(){
  if(!settings.billMonth)settings.billMonth="2026-12";
  const q=query(collection(db,"users",currentUser.uid,"purchases"),orderBy("date","desc"));const snap=await getDocs(q);purchases=snap.docs.map(d=>({id:d.id,...d.data(),firstBillMonth:normalizeMonth(d.data().firstBillMonth||d.data().date)}));render();
 }
-async function saveSettings(){settings.limit=Number($("limitInput").value||0);settings.billMonth=normalizeMonth($("billMonthInput").value||"2026-12");await setDoc(doc(db,"users",currentUser.uid,"settings","main"),settings,{merge:true});$("settingsDialog").close();render();showToast("Configurações salvas.");}
+async function saveSettings(){settings.limit=Number($("limitInput").value||0);settings.billMonth=normalizeMonth($("billMonthInput").value||"2026-12");settings.monthlyLimits=settings.monthlyLimits||{};await setDoc(doc(db,"users",currentUser.uid,"settings","main"),settings,{merge:true});$("settingsDialog").close();render();showToast("Configurações salvas.");}
+const limitForMonth = month => {const value=settings.monthlyLimits?.[month];return value===undefined||value===null||value===""?Number(settings.limit||0):Number(value);};
 function installmentRows(p){const n=Math.max(1,Number(p.installments||1)),total=Number(p.amount||0),each=Math.round(total/n*100)/100;let out=[];for(let i=0;i<n;i++){let val=i===n-1?Math.round((total-each*(n-1))*100)/100:each;out.push({month:shiftMonth(p.firstBillMonth||p.date,i),value:val,index:i+1,total:n});}return out;}
 function render(){
- const billMonth=normalizeMonth(settings.billMonth||"2026-12");let rows=purchases.flatMap(p=>installmentRows(p).map(r=>({...r,p})));let current=rows.filter(r=>r.month===billMonth).reduce((s,r)=>s+r.value,0);let future=rows.filter(r=>r.month>billMonth).reduce((s,r)=>s+r.value,0);let available=settings.limit-current;
- $("available").textContent=brl(available);$("limitLabel").textContent=brl(settings.limit);$("spentLabel").textContent=brl(current);$("futureLabel").textContent=brl(future);
+ const billMonth=normalizeMonth(settings.billMonth||"2026-12");let rows=purchases.flatMap(p=>installmentRows(p).map(r=>({...r,p})));let current=rows.filter(r=>r.month===billMonth).reduce((s,r)=>s+r.value,0);let future=rows.filter(r=>r.month>billMonth).reduce((s,r)=>s+r.value,0);const activeLimit=limitForMonth(billMonth);let available=activeLimit-current;
+ $("available").textContent=brl(available);$("limitLabel").textContent=brl(activeLimit);$("spentLabel").textContent=brl(current);$("futureLabel").textContent=brl(future);
  let pct=settings.limit?Math.min(100,current/settings.limit*100):0;$("usagePct").textContent=`${Math.round(pct)}% usado`;$("progressBar").style.width=pct+"%";$("progressBar").style.background=pct>=100?"#ff8c8c":pct>=85?"#ffd166":"#52d6b5";
  $("monthLabel").textContent=monthLabel(billMonth);
  const cats={};rows.filter(r=>r.month===billMonth).forEach(r=>cats[r.p.category]=(cats[r.p.category]||0)+r.value);
@@ -41,8 +42,11 @@ function render(){
  const itemHtml=p=>`<div class="purchase"><div class="purchase-main"><strong>${escapeHtml(p.description)}</strong><small>${escapeHtml(p.category)} · Compra em ${dateOnly(p.date).split("-").reverse().join("/")} · ${p.installments>1?`${p.installments}x de ${brl(p.amount/p.installments)}`:"À vista"}</small><label class="charge-month-label">1ª cobrança em<input type="month" value="${normalizeMonth(p.firstBillMonth||p.date)}" data-first-month="${p.id}" aria-label="Primeiro mês de cobrança"></label></div><div class="purchase-actions"><span class="amount-val">${brl(p.amount)}</span><button class="delete" data-delete="${p.id}" aria-label="Excluir">Excluir</button></div></div>`;
  $("recentList").innerHTML=purchases.length?purchases.slice(0,4).map(itemHtml).join(""):'<p class="empty">Adicione sua primeira compra.</p>';
  $("purchaseList").innerHTML=purchases.length?purchases.map(itemHtml).join(""):'<p class="empty">Nenhum lançamento cadastrado.</p>';
- const months={};rows.filter(r=>r.month>billMonth).forEach(r=>months[r.month]=(months[r.month]||0)+r.value);
- $("futureList").innerHTML=Object.keys(months).sort().length?Object.keys(months).sort().map(m=>`<div class="panel future-card"><h3>${escapeHtml(monthLabel(m))}</h3><p>Total previsto: <strong>${brl(months[m])}</strong></p></div>`).join(""):'<div class="panel empty">Nenhuma parcela futura cadastrada.</div>';
+ const totals={};rows.forEach(r=>totals[r.month]=(totals[r.month]||0)+r.value);
+ const latestMonth=Object.keys(totals).sort().slice(-1)[0]||billMonth;
+ const monthsToShow=Math.max(12,Math.min(36,Math.round((monthDate(latestMonth)-monthDate(billMonth))/(1000*60*60*24*30.4375))+1));
+ const monthKeys=Array.from({length:monthsToShow},(_,i)=>shiftMonth(billMonth,i));
+ $("futureList").innerHTML=monthKeys.map(m=>{const total=totals[m]||0,limit=limitForMonth(m),balance=limit-total;return `<div class="panel future-card month-budget"><div class="month-budget-head"><h3>${escapeHtml(monthLabel(m))}</h3><button class="text-btn month-select" data-month-select="${m}">Ver no resumo</button></div><div class="month-budget-grid"><div><small>Gastos previstos</small><strong>${brl(total)}</strong></div><div><small>Disponível</small><strong class="${balance<0?'over-budget':''}">${brl(balance)}</strong></div></div><label class="month-limit-label">Limite deste mês (R$)<input type="number" min="0" step="0.01" inputmode="decimal" value="${limit.toFixed(2)}" data-month-limit="${m}" aria-label="Limite de ${escapeHtml(monthLabel(m))}"></label></div>`;}).join("");
  $("limitInput").value=settings.limit||"";$("billMonthInput").value=billMonth;$("firstMonth").value=normalizeMonth($("firstMonth").value||billMonth);
 }
 function escapeHtml(s){return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
@@ -57,7 +61,10 @@ document.querySelectorAll("[data-close]").forEach(b=>b.addEventListener("click",
 document.querySelectorAll("[data-tab]").forEach(b=>b.addEventListener("click",()=>switchTab(b.dataset.tab)));
 document.querySelectorAll("[data-goto]").forEach(b=>b.addEventListener("click",()=>switchTab(b.dataset.goto)));
 document.body.addEventListener("click",e=>{const b=e.target.closest("[data-delete]");if(b)removePurchase(b.dataset.delete)});
-document.body.addEventListener("change",e=>{const input=e.target.closest("[data-first-month]");if(input)changeFirstMonth(input.dataset.firstMonth,input.value).catch(err=>showToast("Erro ao atualizar: "+err.message));});
+document.body.addEventListener("change",e=>{const input=e.target.closest("[data-first-month]");if(input)changeFirstMonth(input.dataset.firstMonth,input.value).catch(err=>showToast("Erro ao atualizar: "+err.message));const limitInput=e.target.closest("[data-month-limit]");if(limitInput)saveMonthlyLimit(limitInput.dataset.monthLimit,limitInput.value).catch(err=>showToast("Erro ao salvar limite: "+err.message));});
+document.body.addEventListener("click",e=>{const select=e.target.closest("[data-month-select]");if(select)selectMonthForSummary(select.dataset.monthSelect).catch(err=>showToast("Erro: "+err.message));});
+async function saveMonthlyLimit(month,value){settings.monthlyLimits=settings.monthlyLimits||{};settings.monthlyLimits[month]=Math.max(0,Number(value||0));await setDoc(doc(db,"users",currentUser.uid,"settings","main"),{monthlyLimits:settings.monthlyLimits},{merge:true});render();showToast(`Limite de ${monthLabel(month)} salvo.`);}
+async function selectMonthForSummary(month){settings.billMonth=normalizeMonth(month);await setDoc(doc(db,"users",currentUser.uid,"settings","main"),{billMonth:settings.billMonth},{merge:true});render();switchTab("overview");showToast(`Resumo de ${monthLabel(month)}.`);}
 function updatePreview(){const a=Number($("amount").value||0),n=Number($("installments").value||1);$("installmentPreview").textContent=`${n} parcela(s) de ${brl(a/n)}${n>1?" (valor aproximado)":""}`;}
 $("amount").addEventListener("input",updatePreview);$("installments").addEventListener("change",updatePreview);
 $("date").value=dateOnly(new Date());$("firstMonth").value=settings.billMonth;
