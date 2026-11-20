@@ -34,7 +34,7 @@
           <div><small>Compras na fatura</small><strong id="spentLabel">R$ 0,00</strong></div>
           <div><small>Parcelas futuras</small><strong id="futureLabel">R$ 0,00</strong></div>
         </div>
-        <button id="settingsBtn" class="text-btn">Configurar limite e fechamento</button>
+        <button id="settingsBtn" class="text-btn">Configurar limite e mês da fatura</button>
       </section>
 
       <div class="tabs">
@@ -80,7 +80,7 @@
       <label>Categoria<select id="category"><option>Mercado</option><option>Combustível</option><option>Alimentação</option><option>Casa</option><option>Saúde</option><option>Educação</option><option>Compras</option><option>Lazer</option><option>Transporte</option><option>Assinaturas</option><option>Outros</option></select></label>
       <div class="form-row">
         <label>Parcelas<select id="installments"><option value="1">À vista</option><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option><option>7</option><option>8</option><option>9</option><option>10</option><option>11</option><option>12</option><option>18</option><option>24</option></select></label>
-        <label>1ª parcela na fatura<select id="firstMonth"><option value="0">Mês da compra</option><option value="1">Próximo mês</option></select></label>
+        <label>Primeira cobrança em (mês/ano)<input id="firstMonth" type="month" value="2026-12" required></label>
       </div>
       <p id="installmentPreview" class="preview">1 parcela de R$ 0,00</p>
       <button class="primary wide" type="submit">Salvar compra</button>
@@ -91,8 +91,8 @@
     <form id="settingsForm" method="dialog">
       <div class="dialog-head"><h2>Configurações</h2><button type="button" class="close" data-close="settingsDialog">×</button></div>
       <label>Limite que você quer controlar (R$)<input id="limitInput" type="number" min="0" step="0.01" required inputmode="decimal"></label>
-      <label>Dia de fechamento da fatura<input id="closingDay" type="number" min="1" max="28" value="20" required></label>
-      <p class="muted small">O limite é seu teto de controle. As parcelas são distribuídas pelas faturas futuras a partir da data informada.</p>
+      <label>Mês da fatura que você quer controlar<input id="billMonthInput" type="month" value="2026-12" required></label>
+      <p class="muted small">Escolha o mês de referência do resumo. Em cada compra, você informa manualmente o mês da primeira cobrança. As parcelas seguintes serão lançadas nos meses consecutivos.</p>
       <button class="primary wide" type="submit">Salvar configurações</button>
     </form>
   </dialog>
